@@ -71,11 +71,11 @@
   - `Document`: id, developer_id, filename, file_type, raw_text_hash, status, metadata_json, enrichment_json, created_at
   - `DocumentChunk`: id, document_id, index_id, chunk_index, content, embedding (Vector(dim)), token_count, chunk_metadata
 
-- [ ] **Step 1: Write failing test for model constraints and embedding compatibility validation**
-- [ ] **Step 2: Run test to verify it fails**
-- [ ] **Step 3: Implement database models and async engine session manager**
-- [ ] **Step 4: Run test to verify it passes**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write failing test for model constraints and embedding compatibility validation**
+- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 3: Implement database models and async engine session manager**
+- [x] **Step 4: Run test to verify it passes**
+- [x] **Step 5: Commit**
 
 ---
 
