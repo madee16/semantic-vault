@@ -123,11 +123,11 @@
     - `validate_model_dimensions(model: str, expected_dim: int) -> bool`
   - Fallback mechanism to `sentence_transformers` if Ollama is unreachable.
 
-- [ ] **Step 1: Write unit tests for embedding generation, dimension validation, query rewriting fallback, and structured enrichment**
-- [ ] **Step 2: Run tests to verify failure**
-- [ ] **Step 3: Implement `OllamaProvider` and `DocumentEnrichmentResult`**
-- [ ] **Step 4: Run tests to verify pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write unit tests for embedding generation, dimension validation, query rewriting fallback, and structured enrichment**
+- [x] **Step 2: Run tests to verify failure**
+- [x] **Step 3: Implement `OllamaProvider` and `DocumentEnrichmentResult`**
+- [x] **Step 4: Run tests to verify pass**
+- [x] **Step 5: Commit**
 
 ---
 
