@@ -100,3 +100,65 @@ When asked: *"How would you scale SemanticVault from thousands of documents to 1
 > UPDATE api_keys SET requests_used = requests_used + 1 WHERE id = :id AND requests_used < monthly_quota
 > ```
 > *By checking `result.rowcount > 0`, the enforcement became purely atomic at the PostgreSQL engine level. It is completely resilient across multiple async tasks, worker processes, and container replicas, demonstrating why database-level constraints should always supersede application-level assertions for concurrency safety."*
+
+---
+
+### Question 6: "How did you prevent tenant takeover and privilege escalation in API key creation?"
+**Answer:**
+> *"In multi-tenant APIs, registration endpoints are a primary attack vector. If `POST /keys` blindly upserts or fetches a developer by email, any unauthenticated attacker could pass a victim's email address and generate a backdoor API key granting full access to that victim's documents.
+>
+> In SemanticVault, we enforce strict authorization boundaries:
+> 1. If an email does not exist, public self-registration is allowed, but high-privilege scopes like `admin:all` are mathematically blocked from self-assignment.
+> 2. If the email already exists, the endpoint requires authentication (`X-API-Key`) with `admin:keys` scope belonging to that exact developer account (`developer_id == current_key.developer_id`). An unauthenticated request triggers HTTP 409 Conflict.
+> 3. To prevent child key privilege escalation, an issued key's scopes are strictly validated as a subset of the authorizing key's scopes. A key with `documents:read` cannot issue a child key with `admin:keys` or `documents:write`."*
+
+---
+
+### Question 7: "Why is executing vector similarity inside PostgreSQL with pgvector better than pulling embeddings into Python?"
+**Answer:**
+> *"Naive vector implementations load all document chunks into application memory and compute cosine similarity using NumPy or Python loops. While this works for 20 documents in a unit test, it collapses in production:
+> 1. **Network I/O:** Transferring thousands of 768-dimensional float vectors (3 KB each) over database connection pools wastes bandwidth and saturates memory buffers.
+> 2. **Compute Bottlenecks:** Python's Global Interpreter Lock (GIL) and serialization overhead degrade retrieval latency from milliseconds to multiple seconds.
+> 3. **Index Bypassing:** Python-side calculations cannot leverage HNSW or IVFFlat vector indexes.
+>
+> In SemanticVault, we execute vector search directly inside PostgreSQL using the `<=>` cosine distance operator and HNSW indexing:
+> ```sql
+> SELECT dc.id, dc.content, (1.0 - (dc.embedding <=> :query_vec)) AS similarity_score
+> FROM document_chunks dc
+> JOIN documents d ON dc.document_id = d.id
+> WHERE d.developer_id = :developer_id
+> ORDER BY dc.embedding <=> :query_vec ASC
+> LIMIT :top_k;
+> ```
+> PostgreSQL's C-level HNSW implementation traverses graph layers in sub-10ms latency and returns only the top $K$ matching rows to the application server."*
+
+---
+
+### Question 8: "How did you eliminate quadratic $O(N^2)$ bottlenecks in your hybrid search?"
+**Answer:**
+> *"In early versions of hybrid search with Reciprocal Rank Fusion, merging dense vector candidates and sparse lexical candidates used a linear search inside an outer loop:
+> `v_sim = next(s for s, c, _ in vector_scores if c.id == chunk.id)`
+> For $N$ candidates, this performed an $O(N^2)$ quadratic scan.
+>
+> We refactored RRF to use a hash-map join:
+> 1. Dense and lexical candidates are ranked in $O(K \log K)$ and indexed into hash maps (`chunk.id -> rank_info`).
+> 2. The union of chunk IDs is evaluated via $O(1)$ dictionary lookups to compute:
+>    $$\text{RRF}(d) = \frac{\alpha}{60 + r_{\text{vector}}(d)} + \frac{1 - \alpha}{60 + r_{\text{keyword}}(d)}$$
+> 3. The merged candidate list (at most $2K$ items) is sorted in $O(K \log K)$.
+> This reduces overall complexity from $O(N^2)$ to $O(K \log K)$, where $K$ is bounded by the query limit (e.g. 50)."*
+
+---
+
+### Question 9: "How does your monthly quota system handle calendar month rollovers without background workers or Redis?"
+**Answer:**
+> *"Instead of a static counter or requiring an external cron worker to reset quotas at midnight on the first of every month, SemanticVault tracks a `current_period` column in `YYYY-MM` format on each API key.
+>
+> When `record_atomic_usage` executes, it evaluates the active calendar month. If the key's `current_period` is older than the current month, an atomic SQL conditional update executes:
+> ```sql
+> UPDATE api_keys 
+> SET requests_used = 1, current_period = :current_period 
+> WHERE id = :key_id AND current_period != :current_period AND is_active = true;
+> ```
+> If that matches, the first request of the month atomically resets the counter. Subsequent requests in the same month atomically increment `requests_used` where `requests_used < monthly_quota`.
+> This guarantees self-healing, zero-maintenance calendar billing alignment under full database ACID guarantees without needing Celery Beat, Cron, or Redis."*
+

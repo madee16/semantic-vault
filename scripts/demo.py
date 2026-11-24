@@ -36,9 +36,9 @@ def main():
     print_step("Step 2: Generating Developer API Key")
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
         key_payload = {
-            "developer_email": "local_tester@example.com",
-            "developer_name": "Local Tester",
-            "name": "Local Interactive Key",
+            "email": f"local_tester_{int(time.time())}@example.com",
+            "name": "Local Tester",
+            "key_name": "Local Interactive Key",
             "scopes": ["documents:read", "documents:write", "search:read", "admin:keys"],
             "monthly_quota": 5000,
         }
@@ -50,7 +50,7 @@ def main():
         print(f"[+] API Key Prefix: {key_data['key_prefix']}")
         print(f"[+] Full Raw Key:   {raw_key}")
         print(f"[+] Scopes:         {', '.join(key_data['scopes'])}")
-        print(f"[+] Monthly Quota:  {key_data['monthly_quota']} requests")
+        print(f"[+] Monthly Quota:  {key_data['monthly_quota']} requests (Period: {key_data['current_period']})")
 
     auth_headers = {"X-API-Key": raw_key}
 

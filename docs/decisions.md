@@ -137,3 +137,58 @@ Adopt **Reciprocal Rank Fusion (RRF)**.
 ### Consequences & Rationale
 - **Scale Invariance:** Vector cosine similarity and lexical frequency algorithms (TF-IDF, BM25, ILIKE) have completely different score distributions and decay curves. Normalizing them linearly often leads to one retrieval method skewing the combined result. RRF only depends on relative rank order, making it completely robust to incompatible score distributions.
 - **Empirical Industry Standard:** Used in production search engines (Elasticsearch, Vespa, Azure AI Search) due to consistently higher Mean Reciprocal Rank (MRR) and NDCG@10.
+
+---
+
+## ADR-007: Database-Side pgvector & PostgreSQL FTS vs Application Memory Search
+
+### Status
+Accepted
+
+### Context
+Initial prototypes often pull all document embeddings into Python memory to compute cosine similarity using NumPy or math functions. As document collections grow past thousands of chunks, transferring megabytes of vectors over the network and computing pairwise dot products in Python introduces severe latency bottlenecks and exhausts server RAM.
+
+### Decision
+Execute **dense vector cosine distance (`<=>`) and sparse lexical retrieval (`to_tsvector` / `plainto_tsquery`) directly inside PostgreSQL**, returning only the top candidate rows to the application server.
+
+### Consequences & Rationale
+- **Sub-10ms Latency:** pgvector's C-implemented HNSW graph index navigates the vector space directly in PostgreSQL memory buffers, bypassing Python interpreter overhead.
+- **Minimal Network I/O:** The database transmits only the top $K$ candidate rows rather than thousands of raw high-dimensional float arrays.
+- **Database Engine Optimization:** PostgreSQL executes vector distance filters (`WHERE embedding <=> query <= threshold`) and metadata filters simultaneously during query execution.
+- **Graceful Dialect Fallback:** SQLite continues to support in-memory testing for developer environments without requiring external Docker services.
+
+---
+
+## ADR-008: Calendar Month Period Rollover vs Static Lifetime Counters
+
+### Status
+Accepted
+
+### Context
+API keys require a monthly usage quota policy. A naive counter (`requests_used: int`) acts as a permanent lifetime cap unless actively reset by external scheduled jobs.
+
+### Decision
+Store an explicit **`current_period` (`YYYY-MM`)** column on `api_keys`. When `record_atomic_usage` executes, it evaluates the active calendar period. If the month has rolled over, it atomically resets `requests_used = 1` and updates `current_period = :current_month`.
+
+### Consequences & Rationale
+- **Zero External Schedulers:** Eliminates the operational overhead of running Cron jobs, Celery Beat, or external lambda timers to reset monthly quotas at midnight on the 1st of every month.
+- **Atomic & Self-Healing:** The first request of a new month automatically initializes the period under database row-level locking.
+- **Deterministic Billing Alignment:** Guarantees developer quotas align strictly with standard calendar billing periods.
+
+---
+
+## ADR-009: Strict Single-Model Deployment Dimension Schema
+
+### Status
+Accepted
+
+### Context
+PostgreSQL statically types vector columns (e.g. `vector(768)`). Allowing arbitrary runtime dimension registrations in an index table without matching schema definitions leads to database type violation errors.
+
+### Decision
+Explicitly bind the database schema to the deployment's configured embedding model dimension (`EMBEDDING_DIM = 768`, default: `embeddinggemma`). Reindexing workflows require the target model to match the configured deployment column dimension.
+
+### Consequences & Rationale
+- **Architectural Honesty:** Prevents misleading claims that a single PostgreSQL `vector(768)` column can store 384-dim or 1536-dim vectors.
+- **Model Upgrades:** Supports switching between models of identical dimension (e.g., migrating from `embeddinggemma` to `nomic-embed-text` or `bge-base-en-v1.5`, both $d=768$) with automated chunk re-embedding.
+

@@ -177,21 +177,29 @@ WITH (m = 16, ef_construction = 64);
 
 ---
 
-## 6. Security & Quota Architecture
+## 6. Security & Multi-Tenant Authorization Architecture
 
-### 6.1 Cryptographic Key Pipeline
+### 6.1 Cryptographic Key Pipeline & Tenant Isolation
 1. **Generation:** 32 bytes of cryptographically secure random entropy (`secrets.token_hex(24)`), prefixed with `sv_live_`.
 2. **Prefix Indexing:** The first 16 characters (`sv_live_` + 8 hex chars) are stored unhashed as `key_prefix` to enable $O(1)$ candidate retrieval in the database without scanning table rows.
 3. **Salted Hashing:** Stored as $\text{HMAC-SHA256}(\text{key}, \text{salt})$ with a minimum 32-character system salt. Plaintext keys are never logged, cached, or persisted.
 4. **Constant-Time Verification:** Key hashes are validated using `hmac.compare_digest` to prevent side-channel timing attacks.
+5. **Tenant Takeover Defense:** Public self-registration (`POST /api/v1/keys`) only permits creating brand-new accounts. If an email already exists, issuing additional keys strictly requires authentication with an existing `admin:keys` credential belonging to that developer account.
+6. **Privilege Escalation Prevention:** The scopes of child keys are bounded by the authorizing key's scopes. Unauthenticated self-registration cannot request `admin:all`.
 
-### 6.2 Atomic Concurrency Protection
-To prevent race condition attacks where multiple concurrent requests exhaust an API key quota simultaneously, SemanticVault executes atomic SQL updates:
+### 6.2 Atomic Concurrency Protection & Monthly Period Rollover
+Each key tracks an active calendar period in `YYYY-MM` format (`current_period`). When usage is recorded:
 
 ```sql
+-- Rollover check: If month has rolled over, atomically reset counter to 1 and update period
+UPDATE api_keys 
+SET requests_used = 1, current_period = :current_period 
+WHERE id = :key_id AND current_period != :current_period AND is_active = true;
+
+-- Intra-month increment: Atomically increment if below quota
 UPDATE api_keys 
 SET requests_used = requests_used + 1 
-WHERE id = :key_id AND requests_used < monthly_quota;
+WHERE id = :key_id AND current_period = :current_period AND requests_used < monthly_quota AND is_active = true;
 ```
 
-This guarantees that database engine row-level locks enforce exact monthly quotas without application-level race vulnerabilities.
+This guarantees that database engine row-level locks enforce exact monthly quotas with automated month-to-month resets without needing Celery Beat, Cron workers, or Redis.
