@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.logging import logger
 from src.api.middleware.rate_limiter import rate_limiter
 from src.db.session import get_db
 from src.models.api_key import APIKey

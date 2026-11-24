@@ -1,8 +1,10 @@
 """
 API Key service managing issuance, verification, scopes, and atomic quota enforcement.
 """
+import asyncio
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -122,24 +124,25 @@ class KeyService:
 
         return matching_key
 
-    @staticmethod
-    async def record_atomic_usage(db: AsyncSession, api_key_id: str) -> bool:
+    _key_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+    @classmethod
+    async def record_atomic_usage(cls, db: AsyncSession, api_key_id: str) -> bool:
         """
         Atomically increment API key usage count in SQL if below monthly quota.
-        Guarantees quota enforcement against concurrent race conditions.
+        Guarantees strict quota enforcement against concurrent race conditions.
         Returns True if increment succeeded, False if quota is exhausted.
         """
-        stmt = (
-            update(APIKey)
-            .where(
-                APIKey.id == api_key_id,
-                APIKey.requests_used < APIKey.monthly_quota,
+        lock = cls._key_locks[api_key_id]
+        async with lock:
+            stmt = (
+                update(APIKey)
+                .where(APIKey.id == api_key_id, APIKey.requests_used < APIKey.monthly_quota)
+                .values(requests_used=APIKey.requests_used + 1)
             )
-            .values(requests_used=APIKey.requests_used + 1)
-        )
-        result = await db.execute(stmt)
-        await db.commit()
-        return result.rowcount > 0
+            res = await db.execute(stmt)
+            await db.commit()
+            return res.rowcount > 0
 
     @staticmethod
     async def revoke_api_key(db: AsyncSession, developer_id: str, key_id: str) -> bool:
