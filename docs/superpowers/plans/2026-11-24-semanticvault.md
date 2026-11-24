@@ -148,11 +148,11 @@
   - `chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[Chunk]`
   - `DocumentService.ingest_document(developer_id: str, file_bytes: bytes, filename: str, chunk_size: int, chunk_overlap: int, enrich: bool, db: AsyncSession)`
 
-- [ ] **Step 1: Write unit tests for PDF extraction (PyMuPDF), markdown parsing, sliding-window chunking with overlap, and metadata generation**
-- [ ] **Step 2: Run tests to verify failure**
-- [ ] **Step 3: Implement parser, chunker, and document ingestion service**
-- [ ] **Step 4: Run tests to verify pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write unit tests for PDF extraction (PyMuPDF), markdown parsing, sliding-window chunking with overlap, and metadata generation**
+- [x] **Step 2: Run tests to verify failure**
+- [x] **Step 3: Implement parser, chunker, and document ingestion service**
+- [x] **Step 4: Run tests to verify pass**
+- [x] **Step 5: Commit**
 
 ---
 
