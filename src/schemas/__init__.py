@@ -6,6 +6,11 @@ from src.schemas.document import (
     DocumentResponse,
     DocumentDetailResponse,
 )
+from src.schemas.search import (
+    SearchRequest,
+    SearchResultItem,
+    SearchResponse,
+)
 
 __all__ = [
     "DocumentEnrichmentResult",
@@ -14,4 +19,7 @@ __all__ = [
     "DocumentChunkResponse",
     "DocumentResponse",
     "DocumentDetailResponse",
+    "SearchRequest",
+    "SearchResultItem",
+    "SearchResponse",
 ]

@@ -170,11 +170,11 @@
   - `SearchService.hybrid_search(developer_id: str, query: str, top_k: int, alpha: float, metadata_filter: dict, db: AsyncSession) -> SearchResponse`
   - Re-embedding / Reindexing manager: `reindex_all(new_model: str, new_dim: int, db: AsyncSession)`
 
-- [ ] **Step 1: Write tests for cosine similarity calculation, metadata filtering, score thresholding, and model dimension validation**
-- [ ] **Step 2: Run tests to verify failure**
-- [ ] **Step 3: Implement `SearchService` with pgvector `<=>` cosine distance, reciprocal rank fusion (RRF) for hybrid search, and strict model checks**
-- [ ] **Step 4: Run tests to verify pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write tests for cosine similarity calculation, metadata filtering, score thresholding, and model dimension validation**
+- [x] **Step 2: Run tests to verify failure**
+- [x] **Step 3: Implement `SearchService` with pgvector `<=>` cosine distance, reciprocal rank fusion (RRF) for hybrid search, and strict model checks**
+- [x] **Step 4: Run tests to verify pass**
+- [x] **Step 5: Commit**
 
 ---
 
