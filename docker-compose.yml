@@ -1,0 +1,39 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: semanticvault-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: semanticvault
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d semanticvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: semanticvault-api
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgrespassword@db:5432/semanticvault"
+      API_KEY_SALT: "semanticvault-production-secure-salt-32-chars-long"
+      OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+      EMBEDDING_MODEL: "embeddinggemma"
+      EMBEDDING_DIM: 768
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  pgvector_data:
