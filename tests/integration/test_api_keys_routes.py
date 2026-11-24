@@ -76,7 +76,7 @@ async def test_list_and_revoke_keys(test_app: AsyncClient):
             "email": "admin@example.com",
             "name": "Admin",
             "key_name": "Admin Key",
-            "scopes": ["admin:all"],
+            "scopes": ["admin:keys"],
             "monthly_quota": 1000,
         },
     )

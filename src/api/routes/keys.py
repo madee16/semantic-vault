@@ -8,13 +8,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.dependencies import require_api_key
+from src.api.dependencies import get_optional_api_key, require_api_key
 from src.db.session import get_db
 from src.models.api_key import APIKey
 from src.models.developer import Developer
 from src.services.key_service import KeyService
 
 router = APIRouter(prefix="/keys", tags=["API Keys"])
+
+VALID_SCOPES = {"documents:read", "documents:write", "search:read", "admin:keys", "admin:all"}
+PUBLIC_REGISTRATION_ALLOWED_SCOPES = {"documents:read", "documents:write", "search:read", "admin:keys"}
 
 
 class CreateKeyRequest(BaseModel):
@@ -61,24 +64,77 @@ class KeyInfoResponse(BaseModel):
 @router.post("", response_model=KeyCreatedResponse, status_code=status.HTTP_201_CREATED, summary="Issue New Developer API Key")
 async def create_api_key(
     payload: CreateKeyRequest,
+    current_key: Optional[APIKey] = Depends(get_optional_api_key),
     db: AsyncSession = Depends(get_db),
 ) -> KeyCreatedResponse:
     """
-    Register a developer account (or resolve existing by email) and issue a cryptographically random API key.
-    The secret is hashed with SHA-256 and salt before storage.
+    Issue a new API key.
+    - If the developer does not exist: Creates a new developer account and issues the initial key.
+      (Privileged scope 'admin:all' cannot be self-assigned during public registration).
+    - If the developer already exists: Requires authentication with an existing active API key
+      belonging to that developer with 'admin:keys' or 'admin:all' scope.
+    - Privilege Escalation Prevention: The issued key's scopes cannot exceed the authorizing key's scopes.
     """
-    # 1. Resolve or create Developer
+    # 1. Validate requested scopes
+    for scope in payload.scopes:
+        if scope not in VALID_SCOPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid scope '{scope}'. Allowed scopes: {sorted(VALID_SCOPES)}",
+            )
+
+    # 2. Check if developer already exists
     stmt = select(Developer).where(Developer.email == payload.email)
     res = await db.execute(stmt)
     developer = res.scalar_one_or_none()
 
     if not developer:
+        # Case A: Public self-registration for new developer
+        if "admin:all" in payload.scopes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Privileged scope 'admin:all' cannot be self-assigned during initial registration.",
+            )
+
         developer = Developer(email=payload.email, name=payload.name)
         db.add(developer)
         await db.commit()
         await db.refresh(developer)
+    else:
+        # Case B: Existing developer account - MUST authenticate
+        if not current_key:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Developer account for '{payload.email}' already exists. "
+                    "To issue additional keys, authenticate using an existing active API key with 'admin:keys' scope."
+                ),
+            )
 
-    # 2. Issue secure API Key
+        # Cross-tenant check: current key must belong to this developer
+        if current_key.developer_id != developer.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cross-tenant access forbidden. Authorizing key does not belong to this developer account.",
+            )
+
+        # Permission check: current key must have admin:keys or admin:all
+        if not (current_key.has_scope("admin:keys") or current_key.has_scope("admin:all")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permission. Creating keys for an existing account requires 'admin:keys' or 'admin:all' scope.",
+            )
+
+        # Privilege escalation check: cannot issue scopes exceeding current key's scopes (unless admin:all)
+        if not current_key.has_scope("admin:all"):
+            for scope in payload.scopes:
+                if not current_key.has_scope(scope):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Privilege escalation prevented. Authorizing key lacks requested scope '{scope}'.",
+                    )
+
+    # 3. Issue secure API Key
     raw_key, api_key_model = await KeyService.create_api_key(
         db=db,
         developer_id=developer.id,

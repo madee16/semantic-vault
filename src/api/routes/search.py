@@ -4,6 +4,7 @@ Semantic and Hybrid search endpoint routes.
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.logging import logger
 from src.api.dependencies import require_api_key
 from src.db.session import get_db
 from src.models.api_key import APIKey
@@ -33,8 +34,14 @@ async def execute_search(
             request=request,
         )
         return response
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     except Exception as e:
+        logger.exception("Search execution failed with unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Search execution failed: {e}",
+            detail="Search execution failed due to an internal server error.",
         )
