@@ -149,3 +149,85 @@ async def test_live_pgvector_cosine_distance_query(pgvector_session: AsyncSessio
     second_row = rows[1]
     assert second_row.id == distractor_chunk.id
     assert abs(second_row.cosine_distance - 1.0) < 0.0001
+
+
+@pytest.mark.asyncio
+async def test_production_search_service_against_pgvector(pgvector_session: AsyncSession):
+    """
+    Test that the actual SearchService.search() production code path executes
+    against real PostgreSQL + pgvector (exercising database-side cosine distance and FTS).
+    """
+    from unittest.mock import AsyncMock, patch
+    from src.services.search_service import SearchService
+    from src.schemas.search import SearchRequest
+    from src.services.ollama_service import OllamaProvider
+
+    dev = Developer(email=f"svc_search_{uuid.uuid4().hex[:6]}@example.com", name="Production Search Tester")
+    pgvector_session.add(dev)
+    await pgvector_session.flush()
+
+    index = EmbeddingIndex(
+        model_name="embeddinggemma",
+        model_version="v1",
+        dimension=768,
+        distance_metric="cosine",
+        status=IndexStatus.READY,
+    )
+    pgvector_session.add(index)
+    await pgvector_session.flush()
+
+    doc = Document(
+        developer_id=dev.id,
+        index_id=index.id,
+        filename="production_pgvector_spec.md",
+        file_type="md",
+        content_hash=f"hash_{uuid.uuid4().hex[:8]}",
+        raw_content="PostgreSQL pgvector delivers sub-10ms nearest neighbor search using HNSW graph indexing.",
+        metadata_json={"env": "production", "topic": "databases"},
+        status=IngestionStatus.INDEXED,
+    )
+    pgvector_session.add(doc)
+    await pgvector_session.flush()
+
+    # Create target chunk
+    query_emb = [0.0] * 768
+    query_emb[0] = 1.0
+    chunk1 = DocumentChunk(
+        document_id=doc.id,
+        index_id=index.id,
+        chunk_index=0,
+        content="PostgreSQL pgvector delivers sub-10ms nearest neighbor search using HNSW graph indexing.",
+        embedding=query_emb,
+        token_count=15,
+        expected_dimension=768,
+    )
+    pgvector_session.add(chunk1)
+    await pgvector_session.commit()
+
+    mock_provider = OllamaProvider(expected_dim=768)
+    with patch.object(mock_provider, "generate_embeddings", new_callable=AsyncMock) as mock_embed:
+        mock_embed.return_value = [query_emb]
+
+        # 1. Pure vector search through production SearchService
+        req_dense = SearchRequest(query="pgvector HNSW latency", top_k=5, hybrid=False)
+        resp_dense = await SearchService.search(
+            db=pgvector_session,
+            developer_id=dev.id,
+            request=req_dense,
+            ollama_provider=mock_provider,
+        )
+        assert resp_dense.total_results >= 1
+        assert resp_dense.results[0].chunk_id == chunk1.id
+        assert resp_dense.results[0].similarity_score > 0.99
+
+        # 2. Hybrid search through production SearchService (exercising pgvector + PostgreSQL FTS)
+        req_hybrid = SearchRequest(query="pgvector nearest neighbor", top_k=5, hybrid=True, alpha=0.5)
+        resp_hybrid = await SearchService.search(
+            db=pgvector_session,
+            developer_id=dev.id,
+            request=req_hybrid,
+            ollama_provider=mock_provider,
+        )
+        assert resp_hybrid.total_results >= 1
+        assert resp_hybrid.results[0].chunk_id == chunk1.id
+        assert "rrf_score" in resp_hybrid.results[0].metadata
