@@ -98,11 +98,11 @@
   - `revoke_api_key(key_id: str, db: AsyncSession) -> bool`
   - `RateLimiter`: Sliding window rate limiter per API key (e.g., 60 req/min).
 
-- [ ] **Step 1: Write tests for key generation, SHA-256 verification, scope checking, expiration, and atomic quota enforcement**
-- [ ] **Step 2: Run tests to verify failure**
-- [ ] **Step 3: Implement `security.py`, `key_service.py`, `dependencies.py`, and `rate_limiter.py`**
-- [ ] **Step 4: Run tests to verify pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write tests for key generation, SHA-256 verification, scope checking, expiration, and atomic quota enforcement**
+- [x] **Step 2: Run tests to verify failure**
+- [x] **Step 3: Implement `security.py`, `key_service.py`, `dependencies.py`, and `rate_limiter.py`**
+- [x] **Step 4: Run tests to verify pass**
+- [x] **Step 5: Commit**
 
 ---
 
