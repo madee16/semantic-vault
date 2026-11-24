@@ -46,7 +46,7 @@ async def test_ingest_document_success(async_session: AsyncSession, test_develop
     )
 
     # Mock embeddings generation and enrichment
-    mock_embeddings = [[0.01] * 768, [0.02] * 768]
+    mock_embeddings = [[0.01] * 768, [0.02] * 768, [0.03] * 768]
     mock_enrichment = DocumentEnrichmentResult(
         summary="Architecture guide for semantic indexing.",
         tags=["search", "vector"],
@@ -118,3 +118,49 @@ async def test_ingest_duplicate_document(async_session: AsyncSession, test_devel
 
         assert doc1.id == doc2.id
         assert doc1.content_hash == doc2.content_hash
+
+
+@pytest.mark.asyncio
+async def test_ingest_document_embedding_count_mismatch_raises(async_session: AsyncSession, test_developer: Developer):
+    """Test that if the embedding provider returns an incorrect vector count, a RuntimeError is raised."""
+    mock_provider = OllamaProvider(expected_dim=768)
+
+    with patch.object(mock_provider, "generate_embeddings", new_callable=AsyncMock) as mock_embed:
+        # Return only 1 vector when text splits into multiple chunks
+        mock_embed.return_value = [[0.01] * 768]
+
+        long_text = b"Sentence one. " * 50  # Multiple chunks
+
+        with pytest.raises(RuntimeError, match="Embedding generation count mismatch"):
+            await DocumentService.ingest_document(
+                db=async_session,
+                developer_id=test_developer.id,
+                file_bytes=long_text,
+                filename="long_text.txt",
+                chunk_size=50,
+                chunk_overlap=10,
+                ollama_provider=mock_provider,
+            )
+
+
+@pytest.mark.asyncio
+async def test_ingest_document_zero_overlap(async_session: AsyncSession, test_developer: Developer):
+    """Test that chunk_overlap=0 is respected and not overwritten by default."""
+    mock_provider = OllamaProvider(expected_dim=768)
+
+    with patch.object(mock_provider, "generate_embeddings", new_callable=AsyncMock) as mock_embed:
+        mock_embed.return_value = [[0.01] * 768, [0.02] * 768]
+
+        sample_text = b"First distinct chunk sentence. Second distinct chunk sentence."
+        doc = await DocumentService.ingest_document(
+            db=async_session,
+            developer_id=test_developer.id,
+            file_bytes=sample_text,
+            filename="zero_overlap.txt",
+            chunk_size=32,
+            chunk_overlap=0,
+            ollama_provider=mock_provider,
+        )
+
+        assert doc is not None
+        assert len(doc.chunks) >= 2

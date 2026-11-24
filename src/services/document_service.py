@@ -3,6 +3,7 @@ Document Service coordinating file parsing, chunking, enrichment, vector generat
 """
 from typing import Any, Dict, List, Optional
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -75,8 +76,8 @@ class DocumentService:
         Detects duplicates via content hash for idempotent re-uploads.
         """
         settings = get_settings()
-        c_size = chunk_size or settings.DEFAULT_CHUNK_SIZE
-        c_overlap = chunk_overlap or settings.DEFAULT_CHUNK_OVERLAP
+        c_size = chunk_size if chunk_size is not None else settings.DEFAULT_CHUNK_SIZE
+        c_overlap = chunk_overlap if chunk_overlap is not None else settings.DEFAULT_CHUNK_OVERLAP
         provider = ollama_provider or OllamaProvider()
 
         # 1. Parse and normalize text
@@ -123,7 +124,13 @@ class DocumentService:
         logger.info(f"Generating embeddings for {len(chunk_texts)} chunks using {provider.embedding_model}...")
         embeddings = await provider.generate_embeddings(chunk_texts)
 
-        # 7. Persist Document and DocumentChunks in database
+        # Validate that embedding generator returned exact vector count matching chunk count
+        if len(embeddings) != len(text_chunks):
+            raise RuntimeError(
+                f"Embedding generation count mismatch: received {len(embeddings)} vectors for {len(text_chunks)} chunks."
+            )
+
+        # 7. Persist Document and DocumentChunks in database with concurrency-safe duplicate guard
         doc = Document(
             developer_id=developer_id,
             index_id=index.id,
@@ -136,24 +143,43 @@ class DocumentService:
             status=IngestionStatus.INDEXED,
         )
         db.add(doc)
-        await db.flush()
 
-        for chunk_meta, emb in zip(text_chunks, embeddings):
-            chunk_row = DocumentChunk(
-                document_id=doc.id,
-                index_id=index.id,
-                chunk_index=chunk_meta.chunk_index,
-                content=chunk_meta.content,
-                embedding=emb,
-                token_count=chunk_meta.token_count,
-                chunk_metadata=chunk_meta.metadata,
-                expected_dimension=index.dimension,
+        try:
+            await db.flush()
+
+            for chunk_meta, emb in zip(text_chunks, embeddings):
+                chunk_row = DocumentChunk(
+                    document_id=doc.id,
+                    index_id=index.id,
+                    chunk_index=chunk_meta.chunk_index,
+                    content=chunk_meta.content,
+                    embedding=emb,
+                    token_count=chunk_meta.token_count,
+                    chunk_metadata=chunk_meta.metadata,
+                    expected_dimension=index.dimension,
+                )
+                db.add(chunk_row)
+
+            await db.commit()
+            await db.refresh(doc)
+            return doc
+        except IntegrityError:
+            # Handle concurrent race condition when identical document is uploaded simultaneously
+            await db.rollback()
+            logger.info(f"Concurrent duplicate insertion caught for {content_hash}. Retrieving existing record.")
+            dup_stmt = (
+                select(Document)
+                .where(
+                    Document.developer_id == developer_id,
+                    Document.content_hash == content_hash,
+                )
+                .options(selectinload(Document.chunks))
             )
-            db.add(chunk_row)
-
-        await db.commit()
-        await db.refresh(doc)
-        return doc
+            dup_res = await db.execute(dup_stmt)
+            existing = dup_res.scalar_one_or_none()
+            if existing:
+                return existing
+            raise
 
     @classmethod
     async def get_document(
