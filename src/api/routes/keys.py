@@ -1,13 +1,14 @@
 """
 API Key management routes: developer registration, key generation, key listing, and revocation.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import get_settings
 from src.api.dependencies import get_optional_api_key, require_api_key
 from src.db.session import get_db
 from src.models.api_key import APIKey
@@ -29,7 +30,7 @@ class CreateKeyRequest(BaseModel):
         default=["documents:read", "documents:write", "search:read"],
         description="Allowed permission scopes: documents:read, documents:write, search:read, admin:keys, admin:all.",
     )
-    monthly_quota: int = Field(default=10000, ge=1, le=1000000)
+    monthly_quota: int = Field(default_factory=lambda: get_settings().DEFAULT_MONTHLY_QUOTA, ge=1, le=1000000)
     expires_in_days: Optional[int] = Field(default=None, ge=1, le=365)
 
 
@@ -42,6 +43,7 @@ class KeyCreatedResponse(BaseModel):
     name: str
     scopes: List[str]
     monthly_quota: int
+    current_period: str
     expires_at: Optional[datetime]
     created_at: datetime
     security_warning: str = "Store this raw_key securely. It is hashed before storage and cannot be recovered."
@@ -55,6 +57,7 @@ class KeyInfoResponse(BaseModel):
     scopes: List[str]
     monthly_quota: int
     requests_used: int
+    current_period: str
     is_active: bool
     expires_at: Optional[datetime]
     revoked_at: Optional[datetime]
@@ -152,6 +155,7 @@ async def create_api_key(
         name=api_key_model.name,
         scopes=api_key_model.scopes,
         monthly_quota=api_key_model.monthly_quota,
+        current_period=api_key_model.current_period,
         expires_at=api_key_model.expires_at,
         created_at=api_key_model.created_at,
     )
@@ -172,6 +176,7 @@ async def list_api_keys(
             scopes=k.scopes,
             monthly_quota=k.monthly_quota,
             requests_used=k.requests_used,
+            current_period=k.current_period,
             is_active=k.is_active,
             expires_at=k.expires_at,
             revoked_at=k.revoked_at,

@@ -113,7 +113,8 @@ class KeyService:
             if utc_now() > expires_at:
                 raise KeyAuthError("API key has expired.", status_code=401)
 
-        if matching_key.requests_used >= matching_key.monthly_quota:
+        current_period = utc_now().strftime("%Y-%m")
+        if matching_key.current_period == current_period and matching_key.requests_used >= matching_key.monthly_quota:
             raise KeyAuthError("Monthly quota exceeded for this API key.", status_code=429)
 
         if required_scope and not matching_key.has_scope(required_scope):
@@ -130,14 +131,37 @@ class KeyService:
     async def record_atomic_usage(cls, db: AsyncSession, api_key_id: str) -> bool:
         """
         Atomically increment API key usage count in SQL if below monthly quota.
+        Automatically resets requests_used when the calendar month rolls over (YYYY-MM).
         Guarantees strict quota enforcement against concurrent race conditions.
         Returns True if increment succeeded, False if quota is exhausted.
         """
+        current_period = utc_now().strftime("%Y-%m")
         lock = cls._key_locks[api_key_id]
         async with lock:
+            # 1. Check if the month has rolled over and reset atomically
+            reset_stmt = (
+                update(APIKey)
+                .where(
+                    APIKey.id == api_key_id,
+                    APIKey.current_period != current_period,
+                    APIKey.is_active == True,
+                )
+                .values(requests_used=1, current_period=current_period)
+            )
+            reset_res = await db.execute(reset_stmt)
+            if reset_res.rowcount > 0:
+                await db.commit()
+                return True
+
+            # 2. Increment within current monthly period if below quota
             stmt = (
                 update(APIKey)
-                .where(APIKey.id == api_key_id, APIKey.requests_used < APIKey.monthly_quota)
+                .where(
+                    APIKey.id == api_key_id,
+                    APIKey.current_period == current_period,
+                    APIKey.requests_used < APIKey.monthly_quota,
+                    APIKey.is_active == True,
+                )
                 .values(requests_used=APIKey.requests_used + 1)
             )
             res = await db.execute(stmt)
