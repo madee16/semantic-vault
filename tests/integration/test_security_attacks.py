@@ -167,3 +167,102 @@ async def test_attack_concurrent_quota_race_condition(security_client):
     # Exactly 5 must succeed (200), and exactly 15 must be blocked with 429 Quota Exceeded!
     assert status_counts.get(200, 0) == 5
     assert status_counts.get(429, 0) == 15
+
+
+@pytest.mark.asyncio
+async def test_attack_tenant_takeover_unauthenticated_blocked(security_client):
+    """
+    Attack 5: Tenant Takeover Attempt.
+    An unauthenticated attacker tries to issue a new key for an existing victim's email address.
+    Must be blocked with 409 Conflict.
+    """
+    client, _, dev_id, session_factory = security_client
+
+    # Target developer email already registered in fixture
+    attack_payload = {
+        "email": "attacker_target@example.com",
+        "name": "Attacker Impersonator",
+        "key_name": "Stolen Key",
+        "scopes": ["documents:read", "documents:write", "search:read"],
+    }
+    # Unauthenticated request (explicitly empty X-API-Key to override fixture default)
+    res = await client.post("/api/v1/keys", json=attack_payload, headers={"X-API-Key": ""})
+    assert res.status_code == 409
+    assert "already exists" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_attack_cross_tenant_key_creation_blocked(security_client):
+    """
+    Attack 6: Cross-Tenant Key Creation.
+    Developer A authenticates with their own valid key, but tries to issue a key for Developer B's account.
+    Must be blocked with 403 Forbidden.
+    """
+    client, raw_key_a, dev_id_a, session_factory = security_client
+
+    # Create Developer B
+    async with session_factory() as session:
+        dev_b = Developer(email="victim_tenant_b@example.com", name="Victim B")
+        session.add(dev_b)
+        await session.commit()
+
+    # Developer A attempts to create a key under Developer B's email
+    attack_payload = {
+        "email": "victim_tenant_b@example.com",
+        "name": "Tenant B Impersonation",
+        "key_name": "Backdoor Key",
+        "scopes": ["documents:read"],
+    }
+    res = await client.post("/api/v1/keys", json=attack_payload, headers={"X-API-Key": raw_key_a})
+    assert res.status_code == 403
+    assert "Cross-tenant access forbidden" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_attack_public_registration_admin_all_escalation_blocked(security_client):
+    """
+    Attack 7: Privilege Escalation on Public Self-Registration.
+    An unauthenticated caller registers a new account and attempts to grant themselves 'admin:all'.
+    Must be rejected with 403 Forbidden.
+    """
+    client, _, _, _ = security_client
+
+    payload = {
+        "email": "malicious_new_user@example.com",
+        "name": "Malicious User",
+        "key_name": "Admin Escalation Key",
+        "scopes": ["admin:all"],
+    }
+    res = await client.post("/api/v1/keys", json=payload, headers={})
+    assert res.status_code == 403
+    assert "Privileged scope 'admin:all' cannot be self-assigned" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_attack_child_key_privilege_escalation_blocked(security_client):
+    """
+    Attack 8: Child Key Privilege Escalation.
+    A key holder with only 'admin:keys' attempts to issue a child key with 'admin:all'.
+    Must be blocked with 403 Forbidden.
+    """
+    client, _, dev_id, session_factory = security_client
+
+    # Issue an admin:keys key to the target developer
+    async with session_factory() as session:
+        admin_keys_token, _ = await KeyService.create_api_key(
+            db=session,
+            developer_id=dev_id,
+            name="Admin Keys Token",
+            scopes=["admin:keys"],
+        )
+
+    # Caller attempts to issue a child key with admin:all
+    payload = {
+        "email": "attacker_target@example.com",
+        "name": "Target Developer",
+        "key_name": "Super Admin Child Key",
+        "scopes": ["admin:all"],
+    }
+    res = await client.post("/api/v1/keys", json=payload, headers={"X-API-Key": admin_keys_token})
+    assert res.status_code == 403
+    assert "Privilege escalation prevented" in res.json()["detail"]

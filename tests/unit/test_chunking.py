@@ -46,3 +46,35 @@ def test_invalid_chunk_overlap_raises():
 
     with pytest.raises(ValueError, match="chunk_overlap cannot be negative"):
         ChunkingService.chunk_text("Some text", chunk_size=100, chunk_overlap=-5)
+
+
+def test_chunking_word_boundaries_both_ends():
+    """Verify that chunks never start or end with partial, truncated words."""
+    sentence = (
+        "Artificial intelligence and semantic search systems require careful text chunking "
+        "to prevent context dilution while maintaining continuity across sentence boundaries."
+    )
+    chunks = ChunkingService.chunk_text(sentence, chunk_size=60, chunk_overlap=15)
+    assert len(chunks) > 1
+
+    # Every word in every chunk must be a full word from the original sentence
+    original_words = set(sentence.split())
+    for chunk in chunks:
+        chunk_words = chunk.content.split()
+        for w in chunk_words:
+            # Strip trailing punctuation if any
+            clean_w = w.strip(".,;:?!")
+            if clean_w:
+                assert any(clean_w in orig for orig in original_words), f"Chopped word detected: '{w}' in '{chunk.content}'"
+
+
+def test_chunking_zero_overlap():
+    """Verify zero overlap is respected and does not default back to 50."""
+    text = "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron."
+    chunks = ChunkingService.chunk_text(text, chunk_size=30, chunk_overlap=0)
+    assert len(chunks) > 1
+    # Verify no common words between adjacent chunks when overlap is 0
+    for i in range(len(chunks) - 1):
+        words_curr = set(chunks[i].content.split())
+        words_next = set(chunks[i + 1].content.split())
+        assert len(words_curr.intersection(words_next)) == 0

@@ -58,18 +58,20 @@ curl -X GET "http://localhost:8000/api/v1/health"
 ---
 
 ### 2.2 Create API Key
-Issue a cryptographically secure, scoped API key for a developer.
+Issue a cryptographically secure, scoped API key.
+- **Initial Developer Registration:** Public (unauthenticated). Creates the account and issues the initial key. Privileged scope `admin:all` cannot be self-assigned.
+- **Issuing Additional Keys for Existing Accounts:** Requires authentication (`X-API-Key`) with `admin:keys` or `admin:all` scope. The issued key cannot exceed the authorizing key's scopes (privilege escalation prevention).
 
 - **Method:** `POST`
 - **Path:** `/api/v1/keys`
-- **Authentication:** Public / Admin Key
+- **Authentication:** Public for new developer registration; `X-API-Key` with `admin:keys` for existing accounts.
 
 #### Request Body
 ```json
 {
-  "developer_email": "developer@example.com",
-  "developer_name": "Dev Organization",
-  "name": "Production Backend Key",
+  "email": "developer@example.com",
+  "name": "Dev Organization",
+  "key_name": "Production Backend Key",
   "scopes": ["documents:read", "documents:write", "search:read"],
   "monthly_quota": 10000,
   "expires_in_days": 90
@@ -79,14 +81,14 @@ Issue a cryptographically secure, scoped API key for a developer.
 #### Response (`201 Created`)
 ```json
 {
-  "id": "6a3e8785-555e-4bb0-8012-70b1cb7a61d1",
+  "key_id": "6a3e8785-555e-4bb0-8012-70b1cb7a61d1",
   "developer_id": "7b55f1f2-1a4c-473d-9d47-66a90dcbb302",
-  "name": "Production Backend Key",
   "raw_key": "sv_live_4a8df9e81b6c5432098d... (displayed ONCE only)",
   "key_prefix": "sv_live_4a8df9e8",
+  "name": "Production Backend Key",
   "scopes": ["documents:read", "documents:write", "search:read"],
   "monthly_quota": 10000,
-  "requests_used": 0,
+  "current_period": "2026-11",
   "expires_at": "2027-02-22T00:00:00Z",
   "created_at": "2026-11-24T02:00:00Z"
 }
@@ -97,9 +99,9 @@ Issue a cryptographically secure, scoped API key for a developer.
 curl -X POST "http://localhost:8000/api/v1/keys" \
   -H "Content-Type: application/json" \
   -d '{
-    "developer_email": "developer@example.com",
-    "developer_name": "Dev Organization",
-    "name": "Search Key",
+    "email": "developer@example.com",
+    "name": "Dev Organization",
+    "key_name": "Search Key",
     "scopes": ["search:read"],
     "monthly_quota": 5000
   }'

@@ -164,3 +164,36 @@ async def test_atomic_quota_enforcement(async_session: AsyncSession, test_develo
             raw_key=raw_key,
             salt=salt,
         )
+
+
+@pytest.mark.asyncio
+async def test_monthly_quota_period_rollover(async_session: AsyncSession, test_developer: Developer):
+    """Test that requests_used resets to 1 and updates current_period when month rolls over."""
+    from sqlalchemy import update
+    from src.models.api_key import APIKey
+    salt = "test-salt-secret-at-least-32-chars-long"
+    raw_key, api_key = await KeyService.create_api_key(
+        db=async_session,
+        developer_id=test_developer.id,
+        name="Rollover Key",
+        scopes=["search:read"],
+        monthly_quota=2,
+        salt=salt,
+    )
+
+    # Simulate key was exhausted in a previous month (e.g. 2026-01)
+    await async_session.execute(
+        update(APIKey)
+        .where(APIKey.id == api_key.id)
+        .values(current_period="2026-01", requests_used=2)
+    )
+    await async_session.commit()
+
+    # Now record usage in current month -> should detect rollover, reset counter, and allow!
+    rollover_ok = await KeyService.record_atomic_usage(async_session, api_key.id)
+    assert rollover_ok is True
+
+    # Check key state
+    updated_key = await async_session.get(APIKey, api_key.id)
+    assert updated_key.requests_used == 1
+    assert updated_key.current_period != "2026-01"

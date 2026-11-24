@@ -62,6 +62,12 @@ class APIKey(Base):
         default=0,
         nullable=False,
     )
+    current_period: Mapped[str] = mapped_column(
+        String(7),
+        default=lambda: utc_now().strftime("%Y-%m"),
+        nullable=False,
+        doc="Active monthly quota period in YYYY-MM format. Resets usage automatically on month rollover.",
+    )
     expires_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

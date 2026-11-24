@@ -56,3 +56,30 @@ def require_api_key(required_scope: Optional[str] = None) -> Callable:
         return api_key
 
     return dependency
+
+
+async def get_optional_api_key(
+    raw_key: Optional[str] = Security(api_key_header),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[APIKey]:
+    """
+    Optional API key dependency.
+    Returns None if no X-API-Key header was provided.
+    Raises HTTPException if a key was provided but is invalid, expired, or revoked.
+    """
+    if not raw_key:
+        return None
+
+    try:
+        api_key = await KeyService.authenticate_key(
+            db=db,
+            raw_key=raw_key,
+        )
+    except KeyAuthError as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message,
+        )
+
+    rate_limiter.check_rate_limit(api_key.id)
+    return api_key

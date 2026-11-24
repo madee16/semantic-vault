@@ -5,16 +5,27 @@ import time
 from collections import defaultdict
 from typing import Dict, List, Optional
 from fastapi import HTTPException, status
+from src.core.config import get_settings
 
 
 class SlidingWindowRateLimiter:
     """
     Sliding window in-memory rate limiter per key.
     Enforces maximum requests within a rolling time window (default 60 seconds).
+
+    Architectural Scope & Limitations:
+    This rate limiter operates in-memory on the active Python process. For single-replica
+    services and local inference workloads, it provides microsecond-level enforcement without
+    requiring Redis. In horizontally scaled multi-replica deployments behind a round-robin
+    load balancer, timestamps would be tracked in a centralized cache (such as Redis sorted sets)
+    to enforce global rate limits across distinct worker nodes.
     """
 
-    def __init__(self, requests_per_minute: int = 60):
-        self.requests_per_minute = requests_per_minute
+    def __init__(self, requests_per_minute: Optional[int] = None):
+        self.requests_per_minute = (
+            requests_per_minute if requests_per_minute is not None
+            else get_settings().RATE_LIMIT_PER_MINUTE
+        )
         self.window_seconds = 60.0
         self._history: Dict[str, List[float]] = defaultdict(list)
 

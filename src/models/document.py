@@ -5,7 +5,7 @@ import enum
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base, VectorField, utc_now
@@ -26,6 +26,9 @@ class IngestionStatus(str, enum.Enum):
 class Document(Base):
     """Uploaded and parsed document root."""
     __tablename__ = "documents"
+    __table_args__ = (
+        UniqueConstraint("developer_id", "content_hash", name="uq_dev_content_hash"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36),

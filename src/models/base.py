@@ -25,6 +25,7 @@ class VectorField(TypeDecorator):
     """
     impl = Text
     cache_ok = True
+    comparator_factory = Vector.comparator_factory
 
     def __init__(self, dimension: int = 768, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)

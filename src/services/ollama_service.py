@@ -92,19 +92,22 @@ class OllamaProvider:
         """
         Fallback embedding generator using local SentenceTransformers.
         Used when the Ollama daemon is offline or during offline testing.
+        Guarantees that fallback models match expected dimensions, never silently corrupting vector collections.
         """
         try:
             from sentence_transformers import SentenceTransformer
-            # Use small fast model for fallback
-            model = SentenceTransformer("all-MiniLM-L6-v2")
+            # Match fallback model dimension to expected index dimension
+            fallback_model_name = "all-MiniLM-L6-v2" if self.expected_dim == 384 else "BAAI/bge-base-en-v1.5"
+            model = SentenceTransformer(fallback_model_name)
             embeddings = model.encode(texts, convert_to_numpy=True).tolist()
-            # If the fallback dimension differs from expected_dim, raise dimension error
             for vec in embeddings:
                 if len(vec) != self.expected_dim:
                     raise EmbeddingDimensionError(
-                        f"Fallback model returned {len(vec)} dimensions, but index requires {self.expected_dim}."
+                        f"Fallback model '{fallback_model_name}' returned {len(vec)} dimensions, but index requires {self.expected_dim}."
                     )
             return embeddings
+        except EmbeddingDimensionError:
+            raise
         except Exception as fallback_err:
             logger.error(f"Fallback embedding generation failed: {fallback_err}")
             raise RuntimeError(f"Failed to generate embeddings: {fallback_err}")

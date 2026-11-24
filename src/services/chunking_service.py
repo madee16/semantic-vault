@@ -50,7 +50,7 @@ class ChunkingService:
         chunk_index = 0
 
         while start < text_length:
-            end = start + chunk_size
+            end = min(start + chunk_size, text_length)
 
             if end >= text_length:
                 # Last chunk
@@ -67,12 +67,11 @@ class ChunkingService:
                     )
                 break
 
-            # Find nearest space or punctuation before end to avoid splitting words
+            # 1. Snap end boundary to whitespace to avoid splitting words at chunk end
             split_at = end
             while split_at > start and not cleaned[split_at].isspace():
                 split_at -= 1
 
-            # If no whitespace found in range, hard cut at end
             if split_at <= start:
                 split_at = end
 
@@ -89,11 +88,18 @@ class ChunkingService:
                 )
                 chunk_index += 1
 
-            # Advance start pointer by (chunk length - overlap)
-            step = (split_at - start) - chunk_overlap
-            if step <= 0:
-                step = 1
-            start += step
+            # 2. Advance start with overlap and snap to word boundary
+            target_start = split_at - chunk_overlap
+            if target_start <= start:
+                target_start = start + 1
+
+            # Advance target_start to the beginning of the next whole word
+            while target_start < split_at and not cleaned[target_start].isspace():
+                target_start += 1
+            while target_start < split_at and cleaned[target_start].isspace():
+                target_start += 1
+
+            start = target_start
 
         return chunks
 

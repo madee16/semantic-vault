@@ -5,7 +5,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org/)
 [![pgvector](https://img.shields.io/badge/pgvector-HNSW-green.svg)](https://github.com/pgvector/pgvector)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_AI-orange.svg)](https://ollama.com/)
-[![Tests](https://img.shields.io/badge/tests-51%20passed-brightgreen.svg)](https://docs.pytest.org/)
+[![Tests](https://img.shields.io/badge/tests-59%20passed%20%7C%202%20pgvector%20skipped-brightgreen.svg)](https://docs.pytest.org/)
 
 **SemanticVault** is an enterprise-grade Semantic Search as a Service platform built with Python, FastAPI, and PostgreSQL with pgvector. It allows software teams and organizations to upload unstructured documents (PDF, Markdown, TXT), extract clean textual context, generate high-dimensional vector representations with local AI models, and retrieve semantically relevant information with sub-15ms latency.
 
@@ -124,9 +124,9 @@ BASE_URL = "http://localhost:8000/api/v1"
 # 1. Register Developer & Issue API Key
 with httpx.Client(base_url=BASE_URL) as client:
     res = client.post("/keys", json={
-        "developer_email": "engineer@example.com",
-        "developer_name": "AI Engineer",
-        "name": "Production Key",
+        "email": "engineer@example.com",
+        "name": "AI Engineer",
+        "key_name": "Production Key",
         "scopes": ["documents:read", "documents:write", "search:read"],
         "monthly_quota": 5000,
     })
@@ -190,16 +190,18 @@ Detailed engineering documentation is located in the [`docs/`](docs/) directory:
 The platform is verified with an automated test suite spanning unit, integration, live pgvector, and adversarial security tests:
 
 ```text
-======================== 51 passed in 4.09s ========================
-- test_attack_tampered_key_rejected               PASSED
-- test_attack_privilege_escalation_blocked        PASSED
-- test_attack_rate_limit_flooding_blocked         PASSED
-- test_attack_concurrent_quota_race_condition     PASSED
-- test_live_pgvector_cosine_distance_query        PASSED
-- test_document_lifecycle                         PASSED
-- test_hybrid_search_rrf                          PASSED
-- test_controlled_vault_reindexing                PASSED
-- test_embedding_model_dimension_validation       PASSED
+======================== 59 passed, 2 pgvector skipped ========================
+- test_attack_tampered_key_rejected                           PASSED
+- test_attack_privilege_escalation_blocked                    PASSED
+- test_attack_rate_limit_flooding_blocked                     PASSED
+- test_attack_concurrent_quota_race_condition                 PASSED
+- test_attack_tenant_takeover_unauthenticated_blocked         PASSED
+- test_attack_cross_tenant_key_creation_blocked               PASSED
+- test_attack_public_registration_admin_all_escalation_blocked PASSED
+- test_attack_child_key_privilege_escalation_blocked          PASSED
+- test_chunking_word_boundaries_both_ends                     PASSED
+- test_monthly_quota_period_rollover                          PASSED
+- test_production_search_service_against_pgvector             PASSED (live db)
 ```
 
 To run tests:
