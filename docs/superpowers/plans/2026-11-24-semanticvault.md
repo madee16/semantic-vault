@@ -204,11 +204,11 @@
   - `DELETE /api/v1/documents/{doc_id}` (Delete document and its vector embeddings)
   - `POST /api/v1/search` (Execute semantic or hybrid vector search)
 
-- [ ] **Step 1: Write integration tests for API endpoints**
-- [ ] **Step 2: Run tests to verify failure**
-- [ ] **Step 3: Implement routes, dependency injection, and FastAPI application in `src/main.py`**
-- [ ] **Step 4: Run tests to verify pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write integration tests for API endpoints**
+- [x] **Step 2: Run tests to verify failure**
+- [x] **Step 3: Implement routes, dependency injection, and FastAPI application in `src/main.py`**
+- [x] **Step 4: Run tests to verify pass**
+- [x] **Step 5: Commit**
 
 ---
 
